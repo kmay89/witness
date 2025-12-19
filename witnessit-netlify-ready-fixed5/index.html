@@ -1,0 +1,1929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cryptographic File Timestamping</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E%F0%9F%95%97%3C/text%3E%3C/svg%3E">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    
+    <!-- External Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- OpenTimestamps - Using UMD build -->
+    
+    <!-- Polyfills needed by javascript-opentimestamps in browsers -->
+    <script src="https://cdn.jsdelivr.net/npm/buffer@6.0.3/index.min.js"></script>
+    <script>
+      // Expose Buffer for libs that assume Node.js
+      window.Buffer = window.Buffer || (window.buffer && window.buffer.Buffer) || undefined;
+    </script>
+<script src="https://opentimestamps.org/assets/javascripts/vendor/opentimestamps.min.js"></script>
+    
+    <style>
+        /* ===== CSS Variables ===== */
+        :root {
+            /* Colors - "Trusted Guardian" palette */
+            --navy: #1A2B4A;
+            --navy-light: #2D4263;
+            --amber: #F59E0B;
+            --amber-light: #FCD34D;
+            --green: #10B981;
+            --green-light: #34D399;
+            --cream: #FEFCF3;
+            --cream-dark: #FEF7E8;
+            --charcoal: #1F2937;
+            --gray: #6B7280;
+            --gray-light: #E5E7EB;
+            
+            /* Typography */
+            --font-display: 'Fraunces', serif;
+            --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            --font-mono: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+            
+            /* Spacing */
+            --space-xs: 0.5rem;
+            --space-sm: 1rem;
+            --space-md: 1.5rem;
+            --space-lg: 2rem;
+            --space-xl: 3rem;
+            --space-2xl: 4rem;
+            
+            /* Border radius */
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 24px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 3px rgba(26, 43, 74, 0.08);
+            --shadow-md: 0 4px 12px rgba(26, 43, 74, 0.12);
+            --shadow-lg: 0 8px 24px rgba(26, 43, 74, 0.16);
+            --shadow-xl: 0 16px 48px rgba(26, 43, 74, 0.20);
+            
+            /* Transitions */
+            --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-base: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: 500ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        /* ===== Reset & Base ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: var(--font-body);
+            background: linear-gradient(135deg, var(--cream) 0%, var(--cream-dark) 100%);
+            color: var(--charcoal);
+            line-height: 1.6;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+        
+        /* ===== Typography ===== */
+        h1, h2, h3 {
+            font-family: var(--font-display);
+            font-weight: 700;
+            line-height: 1.2;
+            color: var(--navy);
+        }
+        
+        h1 {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            margin-bottom: var(--space-sm);
+        }
+        
+        h2 {
+            font-size: clamp(1.5rem, 3vw, 2rem);
+            margin-bottom: var(--space-md);
+        }
+        
+        h3 {
+            font-size: clamp(1.25rem, 2vw, 1.5rem);
+            margin-bottom: var(--space-sm);
+        }
+        
+        p {
+            font-size: 1.125rem;
+            color: var(--charcoal);
+            margin-bottom: var(--space-md);
+        }
+        
+        /* ===== Layout ===== */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: var(--space-xl) var(--space-md);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: var(--space-2xl);
+            animation: fadeInDown 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .header-icon {
+            font-size: 4rem;
+            margin-bottom: var(--space-md);
+            display: inline-block;
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        .tagline {
+            font-size: 1.25rem;
+            color: var(--gray);
+            font-weight: 400;
+            max-width: 600px;
+            margin: 0 auto var(--space-lg);
+        }
+        
+        .trust-badges {
+            display: flex;
+            gap: var(--space-lg);
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: var(--space-lg);
+        }
+        
+        .trust-badge {
+            display: flex;
+            align-items: center;
+            gap: var(--space-xs);
+            font-size: 0.95rem;
+            color: var(--gray);
+        }
+        
+        /* ===== Drop Zone ===== */
+        .drop-zone {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(254, 252, 243, 0.9) 100%);
+            border: 3px dashed rgba(245, 158, 11, 0.3);
+            border-radius: var(--radius-xl);
+            padding: var(--space-2xl) var(--space-xl);
+            text-align: center;
+            cursor: pointer;
+            transition: all var(--transition-base);
+            position: relative;
+            overflow: hidden;
+            min-height: 320px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .drop-zone::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, var(--amber), var(--green));
+            border-radius: var(--radius-xl);
+            opacity: 0;
+            transition: opacity var(--transition-base);
+            z-index: -1;
+        }
+        
+        .drop-zone:hover {
+            border-color: rgba(245, 158, 11, 0.5);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .drop-zone.drag-over {
+            border-color: var(--amber);
+            border-style: solid;
+            background: linear-gradient(135deg, rgba(254, 247, 232, 1) 0%, rgba(254, 243, 217, 1) 100%);
+            transform: scale(1.02);
+            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2), var(--shadow-xl);
+        }
+        
+        .drop-zone.drag-over::before {
+            opacity: 0.05;
+        }
+        
+        .drop-icon {
+            font-size: 4rem;
+            margin-bottom: var(--space-md);
+            display: inline-block;
+            transition: transform var(--transition-base);
+        }
+        
+        .drop-zone:hover .drop-icon {
+            transform: scale(1.1);
+        }
+        
+        .drop-text {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--navy);
+            margin-bottom: var(--space-sm);
+        }
+        
+        .drop-subtext {
+            font-size: 1rem;
+            color: var(--gray);
+            margin-bottom: var(--space-lg);
+        }
+        
+        .file-examples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: var(--space-md);
+            margin-top: var(--space-lg);
+            font-size: 0.95rem;
+        }
+        
+        .file-example {
+            display: flex;
+            align-items: center;
+            gap: var(--space-xs);
+            color: var(--gray);
+        }
+        
+        /* ===== Cards ===== */
+        .card {
+            background: white;
+            border-radius: var(--radius-lg);
+            padding: var(--space-xl);
+            box-shadow: var(--shadow-md);
+            margin-bottom: var(--space-lg);
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        /* ===== Progress Bar ===== */
+        .progress-container {
+            margin: var(--space-lg) 0;
+        }
+        
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: var(--space-sm);
+            font-size: 0.95rem;
+            color: var(--gray);
+        }
+        
+        .progress-bar {
+            height: 12px;
+            background: var(--gray-light);
+            border-radius: 999px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--green) 0%, var(--green-light) 50%, #6EE7B7 100%);
+            border-radius: 999px;
+            transition: width var(--transition-base);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                rgba(255, 255, 255, 0.4) 50%,
+                transparent 100%
+            );
+            animation: shimmer 2s infinite;
+        }
+        
+        /* ===== Hash Display ===== */
+        .hash-display {
+            background: var(--cream-dark);
+            border: 2px solid var(--amber-light);
+            border-radius: var(--radius-md);
+            padding: var(--space-lg);
+            margin: var(--space-lg) 0;
+            position: relative;
+        }
+        
+        .hash-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--gray);
+            margin-bottom: var(--space-sm);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .hash-value {
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            line-height: 1.8;
+            color: var(--navy);
+            word-break: break-all;
+            user-select: all;
+        }
+        
+        .hash-actions {
+            display: flex;
+            gap: var(--space-sm);
+            margin-top: var(--space-md);
+            flex-wrap: wrap;
+        }
+        
+        /* ===== Buttons ===== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-xs);
+            padding: 0.875rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: var(--radius-md);
+            border: none;
+            cursor: pointer;
+            transition: all var(--transition-base);
+            font-family: var(--font-body);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        
+        .btn-primary {
+            background: var(--navy);
+            color: white;
+            box-shadow: var(--shadow-md);
+        }
+        
+        .btn-primary:hover {
+            background: var(--navy-light);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn-secondary {
+            background: white;
+            color: var(--navy);
+            border: 2px solid var(--gray-light);
+        }
+        
+        .btn-secondary:hover {
+            border-color: var(--navy);
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: var(--green);
+            color: white;
+            box-shadow: var(--shadow-md);
+        }
+        
+        .btn-success:hover {
+            background: var(--green-light);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        /* ===== Checkboxes ===== */
+        .checkbox-group {
+            margin: var(--space-lg) 0;
+        }
+        
+        .checkbox-item {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--space-sm);
+            margin-bottom: var(--space-md);
+            cursor: pointer;
+        }
+        
+        .checkbox {
+            flex-shrink: 0;
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--gray-light);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--transition-fast);
+            cursor: pointer;
+        }
+        
+        .checkbox:hover {
+            border-color: var(--amber);
+            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.1);
+        }
+        
+        .checkbox.checked {
+            background: linear-gradient(135deg, var(--green), var(--green-light));
+            border-color: var(--green);
+            animation: checkPop 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        
+        .checkbox.checked::after {
+            content: '✓';
+            color: white;
+            font-weight: bold;
+            font-size: 1rem;
+        }
+        
+        /* ===== Alerts ===== */
+        .alert {
+            padding: var(--space-md) var(--space-lg);
+            border-radius: var(--radius-md);
+            margin: var(--space-lg) 0;
+            display: flex;
+            gap: var(--space-md);
+        }
+        
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 2px solid var(--amber-light);
+            color: var(--navy);
+        }
+        
+        .alert-info {
+            background: rgba(59, 130, 246, 0.1);
+            border: 2px solid #93C5FD;
+            color: var(--navy);
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 2px solid var(--green-light);
+            color: var(--navy);
+        }
+        
+        .alert-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+        
+        /* ===== Divider ===== */
+        .divider {
+            height: 2px;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                var(--gray-light) 50%, 
+                transparent 100%
+            );
+            margin: var(--space-xl) 0;
+        }
+        
+        /* ===== FAQ ===== */
+        .faq-section {
+            margin-top: var(--space-2xl);
+        }
+        
+        .faq-item {
+            margin-bottom: var(--space-md);
+        }
+        
+        .faq-question {
+            background: white;
+            padding: var(--space-md) var(--space-lg);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all var(--transition-fast);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .faq-question:hover {
+            box-shadow: var(--shadow-md);
+            transform: translateY(-2px);
+        }
+        
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height var(--transition-base);
+            padding: 0 var(--space-lg);
+        }
+        
+        .faq-answer.open {
+            max-height: 500px;
+            padding: var(--space-md) var(--space-lg);
+        }
+        
+        /* ===== Utilities ===== */
+        .hidden {
+            display: none !important;
+        }
+        
+        .text-center {
+            text-align: center;
+        }
+        
+        .text-muted {
+            color: var(--gray);
+        }
+        
+        .mono {
+            font-family: var(--font-mono);
+        }
+        
+        /* ===== Animations ===== */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        @keyframes checkPop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* ===== Responsive ===== */
+        @media (max-width: 768px) {
+            :root {
+                --space-xl: 2rem;
+                --space-2xl: 3rem;
+            }
+            
+            .container {
+                padding: var(--space-lg) var(--space-md);
+            }
+            
+            .drop-zone {
+                padding: var(--space-xl) var(--space-md);
+                min-height: 280px;
+            }
+            
+            .file-examples {
+                grid-template-columns: 1fr;
+            }
+            
+            .hash-value {
+                font-size: 0.8rem;
+            }
+            
+            .trust-badges {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+        
+        /* ===== Accessibility ===== */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+        
+        /* Focus styles */
+        *:focus-visible {
+            outline: 3px solid var(--amber);
+            outline-offset: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-icon">🛡️</div>
+            <h1>Timestamp Your Files in Bitcoin</h1>
+            <p class="tagline">
+                Create a cryptographic timestamp proving your file existed at a specific time.<br>
+                <strong>Private. Permanent. Independently Verifiable.</strong>
+            </p>
+            <div class="trust-badges">
+                <div class="trust-badge">
+                    <span>🔒</span> Your file never leaves your computer
+                </div>
+                <div class="trust-badge">
+                    <span>✨</span> Takes about 30 seconds
+                </div>
+                <div class="trust-badge">
+                    <span>🌍</span> Works with standard Bitcoin blockchain
+                </div>
+            </div>
+        </header>
+
+        <!-- Main App Container -->
+        <div id="app">
+            <!-- Step 1: File Drop -->
+            <div id="step-drop" class="step">
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-icon">📄</div>
+                    <div class="drop-text">Drop your file here</div>
+                    <div class="drop-subtext">or click to browse</div>
+                    <input type="file" id="fileInput" style="display: none;" accept="*/*">
+                    
+                    <div class="file-examples">
+                        <div class="file-example">
+                            <span>🎥</span> Videos
+                        </div>
+                        <div class="file-example">
+                            <span>📝</span> Documents
+                        </div>
+                        <div class="file-example">
+                            <span>📸</span> Images
+                        </div>
+                        <div class="file-example">
+                            <span>💼</span> Any file type
+                        </div>
+                    </div>
+                </div>
+
+                <!-- How It Works -->
+                <div class="card" style="margin-top: 3rem;">
+                    <h2>How It Works</h2>
+                    
+                    <div style="margin: 2rem 0;">
+                        <h3>1️⃣ Your file is hashed</h3>
+                        <p class="text-muted">A unique cryptographic fingerprint (SHA-256 hash) is created from your file's contents. This happens entirely in your browser.</p>
+                    </div>
+                    
+                    <div style="margin: 2rem 0;">
+                        <h3>2️⃣ The hash is timestamped in Bitcoin</h3>
+                        <p class="text-muted">Your file's hash is submitted to OpenTimestamps calendars, which anchor it in the Bitcoin blockchain.</p>
+                    </div>
+                    
+                    <div style="margin: 2rem 0;">
+                        <h3>3️⃣ You receive a proof file</h3>
+                        <p class="text-muted">Download a .ots file that cryptographically proves this hash existed at this time. Verifiable with standard tools.</p>
+                    </div>
+                </div>
+
+                <!-- Technical Foundation -->
+                <div class="card">
+                    <h3>Technical Foundation</h3>
+                    <div style="margin-top: 1.5rem;">
+                        <p><strong>🔓 OpenTimestamps Protocol</strong><br>
+                        Open-source protocol for blockchain timestamping. Code at github.com/opentimestamps</p>
+                        
+                        <p><strong>₿ Bitcoin Blockchain</strong><br>
+                        Distributed ledger maintained by thousands of nodes worldwide. Timestamps are anchored in Bitcoin blocks.</p>
+                        
+                        <p><strong>🔍 SHA-256 Hashing</strong><br>
+                        NIST-standard cryptographic hash function. Same algorithm used by Bitcoin.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: File Confirmation -->
+            <div id="step-confirm" class="step hidden">
+                <div class="card">
+                    <h2>✨ Got it!</h2>
+                    
+                    <div style="background: var(--cream-dark); padding: 1.5rem; border-radius: var(--radius-md); margin: 1.5rem 0;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <div style="font-size: 2rem;" id="fileIcon">📄</div>
+                            <div>
+                                <div style="font-weight: 600; font-size: 1.125rem;" id="fileName">filename.pdf</div>
+                                <div class="text-muted" id="fileSize">2.4 MB</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p>Before we continue, let's make sure this is right:</p>
+
+                    <div class="checkbox-group">
+                        <label class="checkbox-item">
+                            <div class="checkbox" data-checkbox="1"></div>
+                            <span>This is the exact file I want to timestamp</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <div class="checkbox" data-checkbox="2"></div>
+                            <span>I haven't edited or modified it</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <div class="checkbox" data-checkbox="3"></div>
+                            <span>I understand this proves when it existed (not who made it)</span>
+                        </label>
+                    </div>
+
+                    <div class="alert alert-warning" id="fileTypeWarning" style="display: none;">
+                        <div class="alert-icon">⚠️</div>
+                        <div>
+                            <strong>Quick heads up about <span id="warningFileType">this file type</span></strong>
+                            <p style="margin-top: 0.5rem;">This file type can be modified by simply opening it. After timestamping, keep it exactly as-is—don't open in editing software or "save as."</p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                        <button class="btn btn-secondary" onclick="resetApp()">
+                            🔄 Use a different file
+                        </button>
+                        <button class="btn btn-success" id="confirmBtn" disabled onclick="startHashing()">
+                            ✨ This is the right file, let's continue →
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Hashing -->
+            <div id="step-hashing" class="step hidden">
+                <div class="card">
+                    <h2>Creating your file's unique fingerprint</h2>
+                    
+                    <div style="text-align: center; margin: 2rem 0;">
+                        <div style="font-size: 4rem; animation: float 2s ease-in-out infinite;">🔍</div>
+                    </div>
+
+                    <div style="background: var(--cream-dark); padding: 1.5rem; border-radius: var(--radius-md); margin: 1.5rem 0;">
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                            <div style="font-size: 2rem;" id="hashingFileIcon">📄</div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600;" id="hashingFileName">filename.pdf</div>
+                            </div>
+                        </div>
+
+                        <div class="progress-container">
+                            <div class="progress-label">
+                                <span id="progressText">Starting...</span>
+                                <span id="progressPercent">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                            </div>
+                            <div style="margin-top: 0.5rem; font-size: 0.875rem; color: var(--gray);" id="progressSpeed"></div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <div class="alert-icon">🔒</div>
+                        <div>
+                            <strong>What's happening right now?</strong>
+                            <p style="margin-top: 0.5rem;">Your computer is creating a unique "fingerprint" for this file—kind of like a barcode that only works for this exact file. Your video stays on your computer. Private and safe.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: Hash Confirmation -->
+            <div id="step-hash-confirm" class="step hidden">
+                <div class="card">
+                    <h2>✅ Fingerprint created!</h2>
+                    
+                    <p>Here's your file's unique identity:</p>
+
+                    <div class="hash-display">
+                        <div class="hash-label">File Fingerprint (SHA-256)</div>
+                        <div class="hash-value" id="hashValue">Computing...</div>
+                        <div class="hash-actions">
+                            <button class="btn btn-secondary" onclick="copyHash()">
+                                📋 Copy to clipboard
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <div class="alert-icon">💡</div>
+                        <div>
+                            <strong>What is this?</strong>
+                            <p style="margin-top: 0.5rem;">This is like your file's DNA—64 letters and numbers that uniquely identify your exact file. If your file changes even slightly, this "DNA" would be completely different.</p>
+                            <p style="margin-top: 0.5rem;">In a moment, we'll record this DNA in Bitcoin's permanent ledger. That creates proof that your file existed today.</p>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <p><strong>Quick check before we continue:</strong></p>
+
+                    <div class="checkbox-group">
+                        <label class="checkbox-item">
+                            <div class="checkbox" data-checkbox="final-1"></div>
+                            <span>This is the right file (<span id="finalFileName">filename.pdf</span>)</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <div class="checkbox" data-checkbox="final-2"></div>
+                            <span>I'll keep the original file safe and unchanged</span>
+                        </label>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                        <button class="btn btn-secondary" onclick="resetApp()">
+                            ← Go back
+                        </button>
+                        <button class="btn btn-success" id="createProofBtn" disabled onclick="createTimestamp()">
+                            🛡️ Create permanent proof →
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 5: Submitting -->
+            <div id="step-submitting" class="step hidden">
+                <div class="card">
+                    <h2>Recording in Bitcoin's permanent ledger</h2>
+                    
+                    <div style="text-align: center; margin: 2rem 0;">
+                        <div style="font-size: 4rem; animation: float 2s ease-in-out infinite;">📝</div>
+                    </div>
+
+                    <p class="text-center">Your file's fingerprint is being recorded in Bitcoin—a permanent, global record that can never be changed or erased.</p>
+
+                    <div style="margin: 2rem 0;">
+                        <div id="calendarStatus">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0;">
+                                <span id="calendar1Status">🔄</span>
+                                <span>Server 1: Connecting...</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0;">
+                                <span id="calendar2Status">⏳</span>
+                                <span>Server 2: Waiting...</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0;">
+                                <span id="calendar3Status">⏳</span>
+                                <span>Server 3: Waiting...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <div class="alert-icon">🤓</div>
+                        <div>
+                            <strong>Nerdy detail (if you're curious):</strong>
+                            <p style="margin-top: 0.5rem;">Bitcoin is like a giant public notebook that thousands of computers around the world maintain. Once something is written in it, everyone has a copy, so no one can erase it or change it later.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 6: Success -->
+            <div id="step-success" class="step hidden">
+                <div class="card">
+                    <h2 class="text-center">🎉 Timestamp Created!</h2>
+                    
+                    <p class="text-center">Your file's hash has been timestamped in the Bitcoin blockchain.<br>Here's your proof:</p>
+
+                    <div style="background: linear-gradient(135deg, var(--green) 0%, var(--green-light) 100%); color: white; padding: 2rem; border-radius: var(--radius-lg); text-align: center; margin: 2rem 0; box-shadow: var(--shadow-lg);">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
+                        <h3 style="color: white; margin-bottom: 1rem;">Evidence Package</h3>
+                        <button class="btn" style="background: white; color: var(--green); font-size: 1.125rem; padding: 1rem 2rem;" onclick="downloadBundle()">
+                            ⬇️ Download Your Proof
+                        </button>
+                        <div style="margin-top: 1rem; font-size: 0.875rem; opacity: 0.9;">
+                            <span id="bundleFilename">timestamp-evidence.zip</span> • 3.4 KB
+                        </div>
+                    </div>
+
+                    <div class="hash-display">
+                        <div class="hash-label">Bundle Integrity Code (Save This Too!)</div>
+                        <div class="hash-value" id="bundleHash">Computing...</div>
+                        <div class="hash-actions">
+                            <button class="btn btn-secondary" onclick="copyBundleHash()">
+                                📋 Copy code
+                            </button>
+                        </div>
+                        <p style="margin-top: 1rem; font-size: 0.875rem; color: var(--gray);">
+                            💡 This code proves your evidence package is authentic
+                        </p>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="alert alert-success">
+                        <div class="alert-icon">✅</div>
+                        <div>
+                            <strong>What you need to do now:</strong>
+                            <ol style="margin: 1rem 0 0 1.5rem; line-height: 2;">
+                                <li>⬇️ Download your evidence package (button above)</li>
+                                <li>💾 Save it in 3 places (computer, cloud, email to yourself)</li>
+                                <li>🔒 Keep your original file safe and unchanged</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="card" style="background: var(--cream-dark); margin-top: 2rem;">
+                        <h3>📋 What's in your evidence package?</h3>
+                        <div style="margin-top: 1rem;">
+                            <p><strong>✅ .ots file</strong> - OpenTimestamps proof of existence</p>
+                            <p><strong>✅ README.txt</strong> - Instructions for verification</p>
+                            <p><strong>✅ VERIFY-INDEPENDENTLY.txt</strong> - Command-line verification guide</p>
+                            <p><strong>✅ manifest.json</strong> - Technical metadata</p>
+                        </div>
+                        <p style="margin-top: 1rem; color: var(--gray);">Keep both the original file and the .ots file to verify the timestamp.</p>
+                    </div>
+
+                    <div style="text-align: center; margin-top: 2rem;">
+                        <button class="btn btn-primary" onclick="resetApp()">
+                            📄 Timestamp another file
+                        </button>
+                    </div>
+
+                    <p class="text-center text-muted" style="margin-top: 2rem;">
+                        ✨ You're all set! You can close this page now.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- FAQ -->
+        <div class="faq-section">
+            <h2 class="text-center">Frequently Asked Questions</h2>
+            
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span><strong>🔒 Is my file uploaded somewhere?</strong></span>
+                    <span>+</span>
+                </div>
+                <div class="faq-answer">
+                    <p><strong>Nope! Your file never leaves your computer.</strong></p>
+                    <p>Here's what actually happens:</p>
+                    <ol>
+                        <li>Your browser (on your computer) creates a unique "fingerprint" of your file</li>
+                        <li>Only that fingerprint (64 letters/numbers) is sent to the internet</li>
+                        <li>Your actual file stays right where it is</li>
+                    </ol>
+                    <p>Think of it like this: Instead of mailing a package to get it weighed, you weigh it at home and just send the number. The package never leaves your house.</p>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span><strong>❓ What does this timestamp prove?</strong></span>
+                    <span>+</span>
+                </div>
+                <div class="faq-answer">
+                    <p><strong>What it proves:</strong></p>
+                    <ul>
+                        <li>A file with this exact SHA-256 hash existed before this Bitcoin block was mined</li>
+                        <li>The timestamp cannot be backdated (would require rewriting Bitcoin blockchain)</li>
+                        <li>Anyone can verify this independently using the .ots file</li>
+                    </ul>
+                    <p><strong>What it does NOT prove:</strong></p>
+                    <ul>
+                        <li>Who created the file</li>
+                        <li>Where the file came from</li>
+                        <li>That the content is authentic or unmodified before timestamping</li>
+                        <li>What happened to the file after timestamping</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span><strong>⚖️ Can I use this for legal purposes?</strong></span>
+                    <span>+</span>
+                </div>
+                <div class="faq-answer">
+                    <p><strong>This tool creates cryptographically verifiable timestamps. Whether they're admissible in legal proceedings depends on:</strong></p>
+                    <ul>
+                        <li>Your jurisdiction's rules of evidence</li>
+                        <li>The specific court or proceeding</li>
+                        <li>How you present and explain the evidence</li>
+                        <li>Whether opposing parties challenge it</li>
+                    </ul>
+                    <p><strong>We make no claims about legal admissibility.</strong> Consult an attorney in your jurisdiction for legal advice.</p>
+                    <p>Some jurisdictions are increasingly recognizing blockchain-based timestamps, but this varies widely.</p>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span><strong>₿ Why Bitcoin?</strong></span>
+                    <span>+</span>
+                </div>
+                <div class="faq-answer">
+                    <p><strong>Bitcoin blockchain is used because:</strong></p>
+                    <ul>
+                        <li><strong>Public:</strong> Anyone can read it, no permission needed</li>
+                        <li><strong>Distributed:</strong> Thousands of nodes maintain copies worldwide</li>
+                        <li><strong>Immutable:</strong> Past blocks cannot be changed without redoing all subsequent proof-of-work</li>
+                        <li><strong>Timestamped:</strong> Each block has an approximate timestamp</li>
+                    </ul>
+                    <p>OpenTimestamps uses Bitcoin as a timestamping layer. You don't need to own Bitcoin, understand cryptocurrency, or make any transactions.</p>
+                    <p>The Bitcoin network simply provides a public, distributed ledger for recording timestamps.</p>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span><strong>💰 How much does this cost?</strong></span>
+                    <span>+</span>
+                </div>
+                <div class="faq-answer">
+                    <p><strong>This tool is free to use.</strong></p>
+                    <p>The OpenTimestamps calendars we use are public services. There are no fees for creating timestamps.</p>
+                    <p>This is open-source software built on open protocols. No subscription, no hidden costs, no ads.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== Global State =====
+        let currentFile = null;
+        let currentHash = null;
+        let currentOTSBytes = null;
+        let bundleBlob = null;
+        let bundleHashValue = null;
+
+        // ===== Utility Functions =====
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 10) / 10 + ' ' + sizes[i];
+        }
+
+        function getFileIcon(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            const iconMap = {
+                'pdf': '📄', 'doc': '📝', 'docx': '📝',
+                'mp4': '🎥', 'mov': '🎥', 'avi': '🎥',
+                'jpg': '📸', 'jpeg': '📸', 'png': '📸', 'heic': '📸',
+                'zip': '📦', 'rar': '📦',
+                'txt': '📃', 'md': '📃'
+            };
+            return iconMap[ext] || '📄';
+        }
+
+        function isModificationProneFormat(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            const proneFormats = ['mp4', 'mov', 'avi', 'mkv', 'jpg', 'jpeg', 'png', 'heic', 'docx', 'xlsx', 'pptx', 'pdf'];
+            return proneFormats.includes(ext);
+        }
+
+        // ===== Navigation =====
+        function showStep(stepId) {
+            document.querySelectorAll('.step').forEach(step => {
+                step.classList.add('hidden');
+            });
+            document.getElementById(stepId).classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetApp() {
+            currentFile = null;
+            currentHash = null;
+            currentOTSBytes = null;
+            bundleBlob = null;
+            bundleHashValue = null;
+            showStep('step-drop');
+            document.getElementById('fileInput').value = '';
+        }
+
+        // ===== File Drop =====
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleFile(file);
+        });
+
+        function handleFile(file) {
+            currentFile = file;
+            
+            // Update UI
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = formatBytes(file.size);
+            document.getElementById('fileIcon').textContent = getFileIcon(file.name);
+            
+            // Show warning if modification-prone
+            if (isModificationProneFormat(file.name)) {
+                const ext = file.name.split('.').pop().toUpperCase();
+                document.getElementById('warningFileType').textContent = ext + ' files';
+                document.getElementById('fileTypeWarning').style.display = 'flex';
+            } else {
+                document.getElementById('fileTypeWarning').style.display = 'none';
+            }
+            
+            // Reset checkboxes
+            document.querySelectorAll('[data-checkbox]').forEach(cb => cb.classList.remove('checked'));
+            document.getElementById('confirmBtn').disabled = true;
+            
+            showStep('step-confirm');
+        }
+
+        // ===== Checkboxes =====
+        document.querySelectorAll('[data-checkbox]').forEach(checkbox => {
+            checkbox.addEventListener('click', () => {
+                checkbox.classList.toggle('checked');
+                checkAllCheckboxes();
+            });
+        });
+
+        function checkAllCheckboxes() {
+            // Confirmation screen
+            const allConfirmChecked = 
+                document.querySelector('[data-checkbox="1"]').classList.contains('checked') &&
+                document.querySelector('[data-checkbox="2"]').classList.contains('checked') &&
+                document.querySelector('[data-checkbox="3"]').classList.contains('checked');
+            document.getElementById('confirmBtn').disabled = !allConfirmChecked;
+            
+            // Final confirmation screen
+            const allFinalChecked = 
+                document.querySelector('[data-checkbox="final-1"]')?.classList.contains('checked') &&
+                document.querySelector('[data-checkbox="final-2"]')?.classList.contains('checked');
+            if (document.getElementById('createProofBtn')) {
+                document.getElementById('createProofBtn').disabled = !allFinalChecked;
+            }
+        }
+
+        // ===== Hashing =====
+        async function startHashing() {
+            showStep('step-hashing');
+            
+            // Update UI
+            document.getElementById('hashingFileName').textContent = currentFile.name;
+            document.getElementById('hashingFileIcon').textContent = getFileIcon(currentFile.name);
+            
+            try {
+                // Compute hash
+                const hash = await computeFileHash(currentFile);
+                currentHash = hash;
+                
+                // Show hash confirmation
+                document.getElementById('hashValue').textContent = formatHash(hash);
+                document.getElementById('finalFileName').textContent = currentFile.name;
+                
+                // Reset checkboxes
+                document.querySelectorAll('[data-checkbox^="final"]').forEach(cb => cb.classList.remove('checked'));
+                document.getElementById('createProofBtn').disabled = true;
+                
+                // Confetti!
+                confetti({
+                    particleCount: 100,
+                    spread: 70,
+                    origin: { y: 0.6 }
+                });
+                
+                showStep('step-hash-confirm');
+            } catch (error) {
+                alert('Error computing hash: ' + error.message);
+                resetApp();
+            }
+        }
+
+        async function computeFileHash(file) {
+            const chunkSize = 8 * 1024 * 1024; // 8MB chunks
+            let offset = 0;
+            const hashAlgorithm = 'SHA-256';
+            
+            // For small files, just hash directly
+            if (file.size < chunkSize) {
+                const buffer = await file.arrayBuffer();
+                const hashBuffer = await crypto.subtle.digest(hashAlgorithm, buffer);
+                return bufferToHex(hashBuffer);
+            }
+            
+            // For large files, hash in chunks
+            const chunks = [];
+            while (offset < file.size) {
+                const chunk = file.slice(offset, offset + chunkSize);
+                const buffer = await chunk.arrayBuffer();
+                chunks.push(new Uint8Array(buffer));
+                
+                offset += chunkSize;
+                const progress = Math.min(100, (offset / file.size) * 100);
+                updateProgress(progress, offset, file.size);
+            }
+            
+            // Combine chunks and hash
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const combined = new Uint8Array(totalLength);
+            let position = 0;
+            for (const chunk of chunks) {
+                combined.set(chunk, position);
+                position += chunk.length;
+            }
+            
+            const hashBuffer = await crypto.subtle.digest(hashAlgorithm, combined);
+            return bufferToHex(hashBuffer);
+        }
+
+        function updateProgress(percent, bytesProcessed, totalBytes) {
+            document.getElementById('progressFill').style.width = percent + '%';
+            document.getElementById('progressPercent').textContent = Math.round(percent) + '%';
+            
+            const processed = formatBytes(bytesProcessed);
+            const total = formatBytes(totalBytes);
+            
+            if (percent < 25) {
+                document.getElementById('progressText').textContent = '🚀 Off to a great start!';
+            } else if (percent < 50) {
+                document.getElementById('progressText').textContent = '⚡ Making progress...';
+            } else if (percent < 75) {
+                document.getElementById('progressText').textContent = '🎯 More than halfway there!';
+            } else {
+                document.getElementById('progressText').textContent = '✨ Almost done!';
+            }
+            
+            document.getElementById('progressSpeed').textContent = `Reading: ${processed} of ${total}`;
+        }
+
+        function bufferToHex(buffer) {
+            const bytes = new Uint8Array(buffer);
+            return Array.from(bytes)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        function formatHash(hash) {
+            // Split into two lines for readability
+            const half = hash.length / 2;
+            return hash.substring(0, half) + '\n' + hash.substring(half);
+        }
+
+        // ===== Copy Functions =====
+        async function copyHash() {
+            try {
+                await navigator.clipboard.writeText(currentHash);
+                showToast('✓ Hash copied to clipboard!');
+            } catch (err) {
+                alert('Could not copy hash. Please select and copy manually.');
+            }
+        }
+
+        async function copyBundleHash() {
+            try {
+                await navigator.clipboard.writeText(bundleHashValue);
+                showToast('✓ Bundle integrity code copied!');
+            } catch (err) {
+                alert('Could not copy code. Please select and copy manually.');
+            }
+        }
+
+        function showToast(message) {
+            // Simple toast notification
+            const toast = document.createElement('div');
+            toast.textContent = message;
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 2rem;
+                left: 50%;
+                transform: translateX(-50%);
+                background: var(--navy);
+                color: white;
+                padding: 1rem 2rem;
+                border-radius: var(--radius-md);
+                box-shadow: var(--shadow-lg);
+                z-index: 1000;
+                animation: fadeIn 0.3s ease-out;
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'fadeIn 0.3s ease-out reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        }
+
+        // ===== Timestamp Creation (REAL OpenTimestamps) =====
+        async function createTimestamp() {
+            showStep('step-submitting');
+            
+            try {
+                // Check if OpenTimestamps library loaded
+                if (typeof OpenTimestamps === 'undefined') {
+                    throw new Error('OpenTimestamps library failed to load. Please refresh the page and try again.');
+                }
+                
+                // Update UI
+                updateCalendarStatus(0, 'connecting', 'alice.btc.calendar.opentimestamps.org');
+                updateCalendarStatus(1, 'waiting', 'bob.btc.calendar.opentimestamps.org');
+                updateCalendarStatus(2, 'waiting', 'finney.calendar.eternitywall.com');
+                
+                // Convert hex hash to bytes
+                const hashBytes = hexToBytes(currentHash);
+                // Browser bundle exposes OpenTimestamps on window; pass Uint8Array for the digest.
+                const hashForOTS = hashBytes;
+
+                // Create OpenTimestamps DetachedTimestampFile
+                const detached = OpenTimestamps.DetachedTimestampFile.fromHash(
+                    new OpenTimestamps.Ops.OpSHA256(),
+                    hashForOTS
+                );
+                
+                // Submit to calendars (REAL submission)
+                updateCalendarStatus(0, 'connecting', 'Submitting to calendars...');
+                
+                
+        // Optional proxy to avoid browser CORS blocks when talking to public calendars.
+        // Example Cloudflare Worker: https://your-worker.example.com/?url=
+        // Leave empty to attempt direct calendar connections (often blocked by CORS in browsers).
+        // Path-style relay, but encode the target calendar base as base64url to avoid URL normalization issues.
+    const RELAY_BASE = `${window.location.origin}/.netlify/functions/ots-proxy/`;
+
+    function toBase64Url(str) {
+      // btoa expects Latin1; URLs are ASCII-safe here.
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    }
+
+    function relayBaseForCalendar(calendarBaseUrl) {
+      return RELAY_BASE + toBase64Url(calendarBaseUrl);
+    }
+
+const calendars = [
+                    'https://alice.btc.calendar.opentimestamps.org',
+                    'https://bob.btc.calendar.opentimestamps.org', 
+                    'https://finney.calendar.eternitywall.com'
+                ];
+                
+                let successCount = 0;
+                const results = [];
+                
+                // Try each calendar with timeout
+                for (let i = 0; i < calendars.length; i++) {
+                    const url = calendars[i];
+                    const displayName = url.replace('https://', '');
+                    
+                    try {
+                        updateCalendarStatus(i, 'connecting', displayName);
+                        
+                        // Set timeout for calendar submission
+                        const timeoutPromise = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Timeout')), 15000)
+                        );
+                        
+                        const stampPromise = OpenTimestamps.stamp(detached, relayBaseForCalendar(url));
+                        
+                        await Promise.race([stampPromise, timeoutPromise]);
+                        
+                        updateCalendarStatus(i, 'success', displayName);
+                        successCount++;
+                        results.push({ calendar: displayName, success: true });
+                    } catch (err) {
+                        console.warn(`Calendar ${url} failed:`, err);
+                        updateCalendarStatus(i, 'failed', displayName + ' (timeout)');
+                        results.push({ calendar: displayName, success: false, error: err.message });
+                    }
+                }
+                
+                // Check if at least one succeeded
+                if (successCount === 0) {
+                    throw new Error(`All calendars failed to respond. In a browser this is very often due to CORS (cross-origin) blocking.
+
+This could be due to:
+• Network connectivity issues
+• Calendar servers being temporarily unavailable
+• Firewall blocking the connection
+• Browser CORS blocking (try using the built-in /.netlify/functions/ots-proxy/<encoded> relay)
+
+Please check your internet connection and try again.`);
+                }
+                
+                // Serialize to .ots bytes (REAL OTS file)
+                currentOTSBytes = detached.serializeToBytes();
+                
+                console.log(`✓ Timestamp created successfully using ${successCount} calendar(s)`);
+                console.log('Results:', results);
+                
+                // Create bundle
+                await createEvidenceBundle(results);
+                
+                // Celebration!
+                confetti({
+                    particleCount: 200,
+                    spread: 100,
+                    origin: { y: 0.6 },
+                    colors: ['#10B981', '#34D399', '#F59E0B']
+                });
+                
+                showStep('step-success');
+                
+            } catch (error) {
+                console.error('Timestamp creation error:', error);
+                
+                let errorMessage = error.message;
+                if (errorMessage.includes("Can't find variable")) {
+                    errorMessage = 'The timestamping library failed to load. Please:\n\n1. Refresh the page\n2. Check your internet connection\n3. Try again\n\nIf the problem persists, try a different browser.';
+                }
+                
+                alert('Error creating timestamp:\n\n' + errorMessage);
+                resetApp();
+            }
+        }
+        
+        function updateCalendarStatus(index, status, message) {
+            const el = document.getElementById(`calendar${index + 1}Status`);
+            const textEl = el.nextElementSibling;
+            
+            switch(status) {
+                case 'connecting':
+                    el.textContent = '🔄';
+                    textEl.textContent = ' ' + message;
+                    break;
+                case 'success':
+                    el.textContent = '✅';
+                    textEl.textContent = ' ' + message + ' - Connected!';
+                    break;
+                case 'failed':
+                    el.textContent = '⚠️';
+                    textEl.textContent = ' ' + message;
+                    break;
+                case 'waiting':
+                    el.textContent = '⏳';
+                    textEl.textContent = ' ' + message + ' - Waiting...';
+                    break;
+            }
+        }
+        
+        function hexToBytes(hex) {
+            const bytes = new Uint8Array(hex.length / 2);
+            for (let i = 0; i < hex.length; i += 2) {
+                bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+            }
+            return bytes;
+        }
+
+        async function createEvidenceBundle(calendarResults = []) {
+            const zip = new JSZip();
+
+            // Add .ots file
+            const otsFilename = currentFile.name + '.ots';
+            zip.file(otsFilename, currentOTSBytes);
+
+            // Add README + verification instructions (generated from currentFile/currentHash)
+            zip.file('README.txt', generateREADME());
+            zip.file('VERIFY-INDEPENDENTLY.txt', generateVerificationInstructions());
+
+            // We need a stable output filename before creating the manifest so verification commands can reference it
+            const dateStr = new Date().toISOString().split('T')[0];
+            const timeStr = new Date().toTimeString().split(' ')[0].replace(/:/g, '');
+            const bundleFilename = `timestamp-evidence-${dateStr}-${timeStr}.zip`;
+
+            // First write a placeholder manifest (bundle hash computed after ZIP generation)
+            const manifestBase = {
+                version: '1.0',
+                created: new Date().toISOString(),
+                file: {
+                    name: currentFile.name,
+                    size_bytes: currentFile.size,
+                    size_human: formatBytes(currentFile.size),
+                    hash_algorithm: 'SHA256',
+                    hash: currentHash
+                },
+                timestamp: {
+                    ots_file: otsFilename,
+                    protocol: 'OpenTimestamps v1',
+                    calendars_attempted: [
+                        'alice.btc.calendar.opentimestamps.org',
+                        'bob.btc.calendar.opentimestamps.org',
+                        'finney.calendar.eternitywall.com'
+                    ],
+                    calendars_successful: calendarResults.filter(r => r.success).map(r => r.calendar),
+                    submitted_at: new Date().toISOString()
+                },
+                bundle_integrity: {
+                    purpose: 'Verify this bundle has not been modified since creation',
+                    algorithm: 'SHA256',
+                    hash: null, // filled after ZIP generation
+                    verification: {
+                        unix: `sha256sum ${bundleFilename}`,
+                        macos: `shasum -a 256 ${bundleFilename}`,
+                        windows: `certutil -hashfile ${bundleFilename} SHA256`,
+                        expected_output: null // filled after ZIP generation
+                    }
+                },
+                verification: {
+                    command_line: `ots verify ${otsFilename}`,
+                    with_file: `ots verify ${otsFilename} -f ${currentFile.name}`,
+                    web_interface: 'https://opentimestamps.org',
+                    documentation: 'See VERIFY-INDEPENDENTLY.txt for detailed instructions'
+                },
+                notes: {
+                    requirement: 'You need both the original file and the .ots file to verify',
+                    file_preservation: 'Keep the original file unchanged (byte-for-byte identical)',
+                    what_this_proves: 'This hash existed before the specified Bitcoin block',
+                    what_this_does_not_prove: 'Authorship, authenticity, or chain of custody'
+                },
+                disclaimer: 'This timestamp proves cryptographic existence at a point in time. Admissibility in legal proceedings depends on jurisdiction. Consult legal counsel.'
+            };
+
+            zip.file('manifest.json', JSON.stringify(manifestBase, null, 2));
+
+            // Generate ZIP blob
+            bundleBlob = await zip.generateAsync({ type: 'blob' });
+
+            // Compute bundle hash over the ZIP bytes
+            const arrayBuffer = await bundleBlob.arrayBuffer();
+            const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+            bundleHashValue = bufferToHex(hashBuffer);
+
+            // Now rewrite manifest.json with the real bundle hash
+            manifestBase.bundle_integrity.hash = bundleHashValue;
+            manifestBase.bundle_integrity.verification.expected_output = bundleHashValue;
+
+            // JSZip doesn't support mutating an existing file in a blob already created,
+            // so we regenerate the ZIP once with the finalized manifest.
+            const zip2 = new JSZip();
+            zip2.file(otsFilename, currentOTSBytes);
+            zip2.file('README.txt', generateREADME());
+            zip2.file('VERIFY-INDEPENDENTLY.txt', generateVerificationInstructions());
+            zip2.file('manifest.json', JSON.stringify(manifestBase, null, 2));
+
+            bundleBlob = await zip2.generateAsync({ type: 'blob' });
+
+            // Recompute hash to match the final ZIP (since manifest changed)
+            const arrayBuffer2 = await bundleBlob.arrayBuffer();
+            const hashBuffer2 = await crypto.subtle.digest('SHA-256', arrayBuffer2);
+            bundleHashValue = bufferToHex(hashBuffer2);
+
+            // Update manifest again so expected_output matches the final ZIP
+            manifestBase.bundle_integrity.hash = bundleHashValue;
+            manifestBase.bundle_integrity.verification.expected_output = bundleHashValue;
+
+            const zip3 = new JSZip();
+            zip3.file(otsFilename, currentOTSBytes);
+            zip3.file('README.txt', generateREADME());
+            zip3.file('VERIFY-INDEPENDENTLY.txt', generateVerificationInstructions());
+            zip3.file('manifest.json', JSON.stringify(manifestBase, null, 2));
+
+            bundleBlob = await zip3.generateAsync({ type: 'blob' });
+
+            // Final hash (should now be stable)
+            const arrayBuffer3 = await bundleBlob.arrayBuffer();
+            const hashBuffer3 = await crypto.subtle.digest('SHA-256', arrayBuffer3);
+            bundleHashValue = bufferToHex(hashBuffer3);
+
+            // Update UI
+            document.getElementById('bundleFilename').textContent = bundleFilename;
+            document.getElementById('bundleHash').textContent = formatHash(bundleHashValue);
+
+            // Store filename for download button
+            window.__witnessit_bundleFilename = bundleFilename;
+        }
+
+        function generateREADME() {
+            return `
+═══════════════════════════════════════════════════════════════
+OPENTIMESTAMPS PROOF FILE
+═══════════════════════════════════════════════════════════════
+
+Created: ${new Date().toISOString()}
+File: ${currentFile.name}
+Size: ${formatBytes(currentFile.size)}
+Hash (SHA-256): ${currentHash}
+
+This package contains an OpenTimestamps proof that this file's
+hash existed at the time of timestamping in the Bitcoin blockchain.
+
+═══════════════════════════════════════════════════════════════
+WHAT'S IN THIS BUNDLE
+═══════════════════════════════════════════════════════════════
+
+1. ${currentFile.name}.ots
+   OpenTimestamps proof file
+
+2. README.txt (this file)
+   Overview and instructions
+
+3. VERIFY-INDEPENDENTLY.txt
+   Command-line verification instructions
+
+4. manifest.json
+   Technical metadata
+
+═══════════════════════════════════════════════════════════════
+WHAT THIS PROVES
+═══════════════════════════════════════════════════════════════
+
+✅ WHAT IS PROVEN:
+   • A file with this SHA-256 hash existed before this Bitcoin
+     block was mined
+   • The timestamp cannot be backdated (would require rewriting
+     the Bitcoin blockchain)
+   • Anyone can verify this independently
+
+❌ WHAT IS NOT PROVEN:
+   • Who created the file
+   • Where the file came from
+   • That the content is authentic
+   • What happened after timestamping
+   • Chain of custody
+
+═══════════════════════════════════════════════════════════════
+HOW TO VERIFY
+═══════════════════════════════════════════════════════════════
+
+REQUIREMENT: You need BOTH files:
+  1. The original file (unchanged)
+  2. The .ots proof file
+
+METHOD 1: Command-line (recommended)
+  
+  Install OpenTimestamps:
+    pip3 install opentimestamps-client
+  
+  Verify:
+    ots verify ${currentFile.name}.ots
+  
+  This will confirm the timestamp against the Bitcoin blockchain.
+
+METHOD 2: Web interface
+  
+  Visit: https://opentimestamps.org
+  Upload your .ots file to verify
+
+See VERIFY-INDEPENDENTLY.txt for detailed instructions.
+
+═══════════════════════════════════════════════════════════════
+CRITICAL: FILE PRESERVATION
+═══════════════════════════════════════════════════════════════
+
+⚠️  Keep the original file EXACTLY as it was when timestamped.
+
+Even the smallest change will cause verification to fail:
+  • Don't edit, crop, or modify the file
+  • Don't open and re-save it
+  • Don't convert to a different format
+  • Don't strip or add metadata
+
+Think of it as evidence that must be preserved byte-for-byte.
+
+═══════════════════════════════════════════════════════════════
+TECHNICAL DETAILS
+═══════════════════════════════════════════════════════════════
+
+Protocol: OpenTimestamps v1
+Hash Algorithm: SHA-256 (FIPS 180-4)
+Blockchain: Bitcoin mainnet
+Verification: Independent, no trusted third party required
+
+OpenTimestamps: https://opentimestamps.org
+GitHub: https://github.com/opentimestamps
+
+═══════════════════════════════════════════════════════════════
+DISCLAIMER
+═══════════════════════════════════════════════════════════════
+
+This timestamp proves cryptographic existence at a point in time.
+It does not prove authenticity, authorship, or chain of custody.
+
+Whether this is admissible in legal proceedings depends on your
+jurisdiction and specific circumstances. Consult legal counsel.
+
+The timestamp tool provider makes no warranties about legal
+admissibility or fitness for any particular purpose.
+
+═══════════════════════════════════════════════════════════════
+`;
+        }
+
+        function generateVerificationInstructions() {
+            return `
+═══════════════════════════════════════════════════════════════
+INDEPENDENT VERIFICATION INSTRUCTIONS
+═══════════════════════════════════════════════════════════════
+
+This file explains how to verify your OpenTimestamps proof
+independently, without relying on any specific website or service.
+
+═══════════════════════════════════════════════════════════════
+WHAT YOU NEED
+═══════════════════════════════════════════════════════════════
+
+1. The original file: ${currentFile.name}
+2. The proof file: ${currentFile.name}.ots
+3. OpenTimestamps verification tool (see below)
+
+═══════════════════════════════════════════════════════════════
+METHOD 1: COMMAND-LINE VERIFICATION
+═══════════════════════════════════════════════════════════════
+
+STEP 1: Install OpenTimestamps Client
+
+  Python (recommended):
+    pip3 install opentimestamps-client
+
+  Or download from:
+    https://github.com/opentimestamps/opentimestamps-client
+
+STEP 2: Verify Your Timestamp
+
+  Basic verification:
+    ots verify ${currentFile.name}.ots
+
+  With the original file:
+    ots verify ${currentFile.name}.ots -f ${currentFile.name}
+
+STEP 3: Understand the Output
+
+  Success:
+    "Success! Bitcoin block [NUMBER] attests existence as of [DATE]"
+    
+  Failure:
+    - "File hash mismatch" = Wrong file or file was modified
+    - "Not yet confirmed" = Timestamp pending (wait 1-6 hours, try again)
+    - Calendar errors = Network issue, try again
+
+═══════════════════════════════════════════════════════════════
+METHOD 2: WEB-BASED VERIFICATION
+═══════════════════════════════════════════════════════════════
+
+Official site:
+  https://opentimestamps.org
+
+Upload your .ots file to verify against Bitcoin blockchain.
+
+Note: This requires trusting the website. For maximum trust,
+use command-line verification (Method 1).
+
+═══════════════════════════════════════════════════════════════
+METHOD 3: VERIFICATION WITH YOUR OWN BITCOIN NODE
+═══════════════════════════════════════════════════════════════
+
+If you run Bitcoin Core, verify without any third party:
+
+  ots --bitcoin-node http://user:pass@localhost:8332/ verify ${currentFile.name}.ots
+
+This provides maximum trust - you're verifying against your own
+copy of the Bitcoin blockchain.
+
+═══════════════════════════════════════════════════════════════
+UNDERSTANDING OPENTIMESTAMPS PROOFS
+═══════════════════════════════════════════════════════════════
+
+The .ots file contains:
+
+1. Your file's SHA-256 hash
+2. A series of cryptographic operations (append, prepend, SHA256)
+3. A path through a Merkle tree
+4. An attestation to a Bitcoin block
+
+Verification process:
+  1. Compute SHA-256 of your file
+  2. Apply the operations from the .ots file
+  3. Result should match a value in the specified Bitcoin block
+  4. Check that this block exists in Bitcoin blockchain
+
+If all steps succeed: Proof is valid.
+If any step fails: Proof is invalid or file was modified.
+
+═══════════════════════════════════════════════════════════════
+TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+ERROR: "File hash mismatch"
+  → You have the wrong file, or the file was modified
+  → You need the EXACT original file, byte-for-byte
+
+ERROR: "Not yet confirmed" or "Pending"
+  → The timestamp hasn't been anchored to Bitcoin yet
+  → Wait 1-6 hours and try again
+  → Or upgrade the timestamp: ots upgrade ${currentFile.name}.ots
+
+ERROR: "Calendar server error"
+  → Network connectivity issue
+  → The timestamp is still valid - verification just couldn't
+    complete at this moment
+  → Try again later or use a different verification method
+
+═══════════════════════════════════════════════════════════════
+TECHNICAL RESOURCES
+═══════════════════════════════════════════════════════════════
+
+OpenTimestamps:
+  Website: https://opentimestamps.org
+  GitHub: https://github.com/opentimestamps
+  Specification: https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/
+
+Bitcoin:
+  Block Explorer: https://blockstream.info
+  Bitcoin Core: https://bitcoin.org
+
+═══════════════════════════════════════════════════════════════
+`;
+        }
+
+        function downloadBundle() {
+            if (!bundleBlob) return;
+            
+            const dateStr = new Date().toISOString().split('T')[0];
+            const timeStr = new Date().toTimeString().split(' ')[0].replace(/:/g, '');
+            const filename = window.__witnessit_bundleFilename || `timestamp-evidence-${dateStr}-${timeStr}.zip`;
+            
+            const url = URL.createObjectURL(bundleBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showToast('✓ Evidence package downloaded!');
+        }
+
+        // ===== FAQ =====
+        function toggleFaq(element) {
+            const answer = element.nextElementSibling;
+            const icon = element.querySelector('span:last-child');
+            
+            if (answer.classList.contains('open')) {
+                answer.classList.remove('open');
+                icon.textContent = '+';
+            } else {
+                answer.classList.add('open');
+                icon.textContent = '−';
+            }
+        }
+
+        // ===== Initialize =====
+        window.addEventListener('load', () => {
+            // Check if all libraries loaded
+            if (typeof JSZip === 'undefined') {
+                console.error('JSZip library failed to load');
+                alert('Required library (JSZip) failed to load. Please refresh the page.');
+            }
+            if (typeof confetti === 'undefined') {
+                console.warn('Confetti library failed to load (non-critical)');
+            }
+            if (typeof OpenTimestamps === 'undefined') {
+                console.error('OpenTimestamps library failed to load');
+                const message = document.createElement('div');
+                message.style.cssText = `
+                    position: fixed;
+                    top: 1rem;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: #FEE2E2;
+                    border: 2px solid #EF4444;
+                    color: #991B1B;
+                    padding: 1rem 2rem;
+                    border-radius: 8px;
+                    z-index: 1000;
+                    max-width: 600px;
+                    text-align: center;
+                `;
+                message.innerHTML = `
+                    <strong>⚠️ Library Loading Error</strong><br>
+                    <span style="font-size: 0.9rem;">The OpenTimestamps library failed to load. Please refresh the page to try again.</span>
+                `;
+                document.body.appendChild(message);
+            } else {
+                console.log('%c🔐 OpenTimestamps Tool Ready', 'font-size: 20px; color: #1A2B4A; font-weight: bold;');
+                console.log('%cClient-side cryptographic timestamping using Bitcoin blockchain', 'color: #10B981;');
+                console.log('%cYour files are hashed locally - nothing is uploaded', 'color: #6B7280;');
+                console.log('%cOpenTimestamps: https://opentimestamps.org', 'color: #6B7280;');
+            }
+        });
+    </script>
+</body>
+</html>
